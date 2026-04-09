@@ -8,7 +8,8 @@ import duckdb
 
 from .models import Category, Clue, Contestant, Episode, Round
 
-DEFAULT_DB_PATH = Path("data/jt3.duckdb")
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_DB_PATH = _PROJECT_ROOT / "data" / "jt3.duckdb"
 
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS episodes (

@@ -9,6 +9,8 @@ dependencies = [
     "lxml>=4.9",
     "duckdb>=1.0",
     "tqdm>=4.60",
+    "jupyter>=1.1.1",
+    "ipywidgets>=8.1.8",
 ]
 
 [project.optional-dependencies]
