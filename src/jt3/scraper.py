@@ -60,6 +60,7 @@ def parse_episode(html: str, game_id: int) -> Episode:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_title(soup: BeautifulSoup) -> tuple[int | None, date | None]:
     """Extract show number and air date from the page <h1>."""
     h1 = soup.find("h1")
@@ -161,7 +162,7 @@ def _parse_clue_cell(cell: Tag) -> Clue | None:
     if text_td is None:
         return None
 
-    clue_id_full = str(text_td.get("id", ""))     # e.g. "clue_J_1_1"
+    clue_id_full = str(text_td.get("id", ""))  # e.g. "clue_J_1_1"
     clue_id = clue_id_full.removeprefix("clue_")  # e.g. "J_1_1"
 
     # Clue value and daily-double flag.
