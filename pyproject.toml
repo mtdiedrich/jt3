@@ -8,6 +8,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=4.9",
     "duckdb>=1.0",
+    "tqdm>=4.60",
 ]
 
 [project.optional-dependencies]
@@ -16,6 +17,7 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.1",
     "ipython>=8.0",
+    "ipykernel>=6.0",
 ]
 
 [build-system]
