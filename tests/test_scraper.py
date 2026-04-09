@@ -23,29 +23,27 @@ def fixture_soup(fixture_html: str) -> BeautifulSoup:
 # _parse_dollar
 # ---------------------------------------------------------------------------
 
+
 def test_parse_dollar_plain():
-    from jt3.scraper import _parse_dollar
     assert _parse_dollar("$200") == 200
 
 
 def test_parse_dollar_with_comma():
-    from jt3.scraper import _parse_dollar
     assert _parse_dollar("$1,200") == 1200
 
 
 def test_parse_dollar_large():
-    from jt3.scraper import _parse_dollar
     assert _parse_dollar("$2,000") == 2000
 
 
 def test_parse_dollar_invalid_returns_zero():
-    from jt3.scraper import _parse_dollar
     assert _parse_dollar("") == 0
 
 
 # ---------------------------------------------------------------------------
 # _parse_title
 # ---------------------------------------------------------------------------
+
 
 def test_parse_title_valid(fixture_soup: BeautifulSoup):
     show_number, air_date = _parse_title(fixture_soup)
@@ -63,6 +61,7 @@ def test_parse_title_no_h1():
 # ---------------------------------------------------------------------------
 # _parse_contestants
 # ---------------------------------------------------------------------------
+
 
 def test_parse_contestants_count(fixture_soup: BeautifulSoup):
     contestants = _parse_contestants(fixture_soup)
@@ -89,6 +88,7 @@ def test_parse_contestants_player_id(fixture_soup: BeautifulSoup):
 # ---------------------------------------------------------------------------
 # parse_episode — top-level
 # ---------------------------------------------------------------------------
+
 
 def test_parse_episode_game_id(fixture_html: str):
     ep = parse_episode(fixture_html, 9418)
@@ -126,6 +126,7 @@ def test_parse_episode_round_names(fixture_html: str):
 # ---------------------------------------------------------------------------
 # Jeopardy! round
 # ---------------------------------------------------------------------------
+
 
 def test_jeopardy_round_category_count(fixture_html: str):
     ep = parse_episode(fixture_html, 9418)
@@ -209,6 +210,7 @@ def test_clue_id_format(fixture_html: str):
 # Final Jeopardy!
 # ---------------------------------------------------------------------------
 
+
 def test_final_jeopardy_category_name(fixture_html: str):
     ep = parse_episode(fixture_html, 9418)
     fj_round = next(r for r in ep.rounds if r.name == "Final Jeopardy!")
@@ -240,7 +242,9 @@ def test_final_jeopardy_clue_id(fixture_html: str):
 # fetch_episode (URL parsing only — no live network call)
 # ---------------------------------------------------------------------------
 
+
 def test_fetch_episode_invalid_url_raises():
     from jt3.scraper import fetch_episode
+
     with pytest.raises(ValueError, match="game_id"):
         fetch_episode("https://example.com/no-game-id")

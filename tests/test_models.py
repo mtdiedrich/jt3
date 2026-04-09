@@ -1,6 +1,5 @@
 from datetime import date
 
-import pytest
 
 from jt3.models import Category, Clue, Contestant, Episode, Round
 
