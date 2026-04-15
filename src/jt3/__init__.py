@@ -10,6 +10,7 @@ from .crawler import (
     season_url,
 )
 from .db import delete_episode, list_episodes, load_episode, save_episode
+from .embeddings import embed, embed_batch, embed_clues, nearest_to_centroid
 from .models import Category, Clue, Contestant, Episode, Round
 from .scraper import fetch_episode, parse_episode
 
@@ -21,6 +22,10 @@ __all__ = [
     "Round",
     "check_robots",
     "delete_episode",
+    "embed",
+    "embed_batch",
+    "embed_clues",
+    "nearest_to_centroid",
     "episode_url",
     "fetch_episode",
     "fetch_episodes",

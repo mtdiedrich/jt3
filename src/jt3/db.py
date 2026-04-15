@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS clues (
     answerer       VARCHAR,
     PRIMARY KEY (game_id, round_index, category_index, clue_id)
 );
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    game_id        INTEGER NOT NULL,
+    round_index    INTEGER NOT NULL,
+    category_index INTEGER NOT NULL,
+    clue_id        VARCHAR NOT NULL,
+    field          VARCHAR NOT NULL,
+    source_text    VARCHAR NOT NULL,
+    embedding      FLOAT[] NOT NULL,
+    model_name     VARCHAR NOT NULL,
+    PRIMARY KEY (game_id, round_index, category_index, clue_id, field)
+);
 """
 
 
