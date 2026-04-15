@@ -63,3 +63,42 @@ uv run pytest --cov=jt3 --cov-report=html         # Tests with coverage
 uv run ruff check .                                 # Check code quality
 uv run ruff format .                                # Format code
 ```
+
+## Answer Graph
+
+Build a multi-edge-type graph over Jeopardy! answers and search for narratively interesting cycles — loops that depart a topic, wander through surprising territory, and return with a thesis.
+
+```python
+import duckdb
+from jt3 import build_answer_nodes, get_seed_answers
+from jt3.enrichment import build_category_bridges, build_semantic_edges
+from jt3.graph import AnswerGraph, find_cycles
+from jt3.evaluator import TextEvaluator, evaluate_cycles
+
+con = duckdb.connect("data/jt3.duckdb")
+build_answer_nodes(con)
+
+# Quick start: category bridges only (no ML deps needed)
+edges = build_category_bridges(con)
+graph = AnswerGraph()
+graph.add_edges(edges)
+
+seeds = get_seed_answers(con, min_span=5)
+cycles = find_cycles(graph, seeds[0][0])
+scored = evaluate_cycles(cycles, TextEvaluator())
+```
+
+For the full graph (semantic + entity edges), install optional deps:
+
+```powershell
+uv pip install -e .[graph]
+python -m spacy download en_core_web_sm
+```
+
+Then use `build_graph()` to assemble everything:
+
+```python
+from jt3.enrichment import build_graph
+
+graph = build_graph(con)  # builds embeddings + NER edges + category bridges
+```
