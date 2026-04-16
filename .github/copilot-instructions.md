@@ -31,3 +31,9 @@ tests/          # pytest tests; mirror src structure as the package grows
 - **Python ≥ 3.11** — use modern syntax (match, `X | Y` unions, `tomllib`, etc.)
 - **ruff** handles both linting and formatting; no separate black/flake8
 - Dev extras live in `[project.optional-dependencies] dev`; add new dev deps there
+
+## Notebook Conventions (Jupyter Only)
+
+- Do not add type hints in Jupyter notebooks.
+- Do not add error handling in Jupyter notebooks solely because it is a best practice.
+- Add notebook error handling only when it solves a specific problem in that notebook workflow.
