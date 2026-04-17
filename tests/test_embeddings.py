@@ -12,12 +12,13 @@ import pytest
 from jt3.db import get_connection, save_episode
 from jt3.embeddings import (
     MODELS,
+    fetch_category_texts,
     fetch_clue_texts,
-    fetch_response_contexts,
+    fetch_full_context_texts,
     fetch_response_texts,
+    generate_category_embeddings,
     generate_clue_embeddings,
-    generate_contextual_response_embeddings,
-    generate_prompted_response_embeddings,
+    generate_full_context_embeddings,
     generate_response_embeddings,
     load_model,
 )
@@ -185,19 +186,38 @@ def test_fetch_response_texts_excludes_null(populated_db: Path):
 
 
 # ---------------------------------------------------------------------------
-# fetch_response_contexts
+# fetch_category_texts
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_response_contexts(populated_db: Path):
-    contexts = fetch_response_contexts(db_path=populated_db)
-    assert isinstance(contexts, dict)
-    assert "Hydrogen" in contexts
-    assert len(contexts["Hydrogen"]) == 1
-    ctx = contexts["Hydrogen"][0]
-    assert "SCIENCE" in ctx
-    assert "This element has atomic number 1" in ctx
-    assert "Hydrogen" in ctx
+def test_fetch_category_texts(populated_db: Path):
+    texts = fetch_category_texts(db_path=populated_db)
+    assert len(texts) == 2
+    assert "SCIENCE" in texts
+    assert "HISTORY" in texts
+
+
+def test_fetch_category_texts_empty(empty_db: Path):
+    texts = fetch_category_texts(db_path=empty_db)
+    assert texts == []
+
+
+# ---------------------------------------------------------------------------
+# fetch_full_context_texts
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_full_context_texts(populated_db: Path):
+    texts = fetch_full_context_texts(db_path=populated_db)
+    assert len(texts) == 3  # 3 clues with non-null responses
+    # Each string has form "Category: Clue → Response"
+    assert any("SCIENCE" in t and "Hydrogen" in t for t in texts)
+    assert any("HISTORY" in t and "1945" in t for t in texts)
+
+
+def test_fetch_full_context_texts_empty(empty_db: Path):
+    texts = fetch_full_context_texts(db_path=empty_db)
+    assert texts == []
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +237,9 @@ def test_generate_clue_embeddings(populated_db: Path):
     assert count == 4
     mock_model.encode.assert_called_once()
 
-    # Verify data in DB
+    # Verify data in DB under embeddings schema
     con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM clue_embeddings").fetchall()
+    rows = con.execute("SELECT * FROM embeddings.clues").fetchall()
     con.close()
     assert len(rows) == 4
 
@@ -242,71 +262,53 @@ def test_generate_response_embeddings(populated_db: Path):
     mock_model.encode.assert_called_once()
 
     con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM response_embeddings").fetchall()
+    rows = con.execute("SELECT * FROM embeddings.responses").fetchall()
     con.close()
     assert len(rows) == 3
 
 
 # ---------------------------------------------------------------------------
-# generate_contextual_response_embeddings
+# generate_category_embeddings
 # ---------------------------------------------------------------------------
 
 
-def test_generate_contextual_response_embeddings(populated_db: Path):
+def test_generate_category_embeddings(populated_db: Path):
     dim = 8
     mock_model = MagicMock()
-    # 3 context strings (one per clue with a response)
+    mock_model.encode.return_value = (
+        np.random.default_rng(42).standard_normal((2, dim)).astype(np.float32)
+    )
+
+    count = generate_category_embeddings(mock_model, db_path=populated_db)
+
+    assert count == 2
+    mock_model.encode.assert_called_once()
+
+    con = get_connection(populated_db)
+    rows = con.execute("SELECT * FROM embeddings.categories").fetchall()
+    con.close()
+    assert len(rows) == 2
+
+
+# ---------------------------------------------------------------------------
+# generate_full_context_embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_generate_full_context_embeddings(populated_db: Path):
+    dim = 8
+    mock_model = MagicMock()
+    # 3 context strings (one per clue with a non-null response)
     mock_model.encode.return_value = (
         np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
     )
 
-    count = generate_contextual_response_embeddings(mock_model, db_path=populated_db)
+    count = generate_full_context_embeddings(mock_model, db_path=populated_db)
 
     assert count == 3
     mock_model.encode.assert_called_once()
 
     con = get_connection(populated_db)
-    rows = con.execute(
-        "SELECT response_text, context_texts, embedding "
-        "FROM contextual_response_embeddings"
-    ).fetchall()
+    rows = con.execute("SELECT * FROM embeddings.full_context").fetchall()
     con.close()
     assert len(rows) == 3
-    # Check that context_texts is valid JSON
-    import json
-
-    for row in rows:
-        contexts = json.loads(row[1])
-        assert isinstance(contexts, list)
-
-
-# ---------------------------------------------------------------------------
-# generate_prompted_response_embeddings
-# ---------------------------------------------------------------------------
-
-
-def test_generate_prompted_response_embeddings(populated_db: Path):
-    dim = 8
-    mock_model = MagicMock()
-    mock_model.encode.return_value = (
-        np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
-    )
-
-    prompt = "Represent this trivia answer: "
-    count = generate_prompted_response_embeddings(
-        mock_model, db_path=populated_db, prompt=prompt
-    )
-
-    assert count == 3
-    mock_model.encode.assert_called_once()
-    call_kwargs = mock_model.encode.call_args
-    assert call_kwargs.kwargs.get("prompt") == prompt
-
-    con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM prompted_response_embeddings").fetchall()
-    con.close()
-    assert len(rows) == 3
-
-    # Verify L2-normalized
-    emb = np.array(rows[0][1])
-    np.testing.assert_allclose(np.linalg.norm(emb), 1.0, atol=1e-5)
