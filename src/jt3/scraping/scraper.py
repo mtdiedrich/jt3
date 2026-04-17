@@ -8,7 +8,7 @@ from datetime import date, datetime
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from .models import Category, Clue, Contestant, Episode, Round
+from ..models import Category, Clue, Contestant, Episode, Round
 
 _ROUND_DIVS = [
     ("Jeopardy!", "jeopardy_round"),

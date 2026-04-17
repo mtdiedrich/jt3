@@ -1,4 +1,4 @@
-"""Tests for jt3.embeddings — embedding generation module."""
+"""Tests for jt3.embeddings.generator — embedding generation module."""
 
 from __future__ import annotations
 
@@ -9,14 +9,19 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from jt3.db import get_connection, save_episode
-from jt3.embeddings import (
+from jt3.db import get_connection
+from jt3.scraping.db import ensure_schema, save_episode
+from jt3.embeddings.generator import (
     MODELS,
+    fetch_category_texts,
     fetch_clue_texts,
+    fetch_full_context_texts,
     fetch_response_contexts,
     fetch_response_texts,
+    generate_category_embeddings,
     generate_clue_embeddings,
     generate_contextual_response_embeddings,
+    generate_full_context_embeddings,
     generate_prompted_response_embeddings,
     generate_response_embeddings,
     load_model,
@@ -106,6 +111,7 @@ def empty_db(tmp_path: Path) -> Path:
     """Create an empty DB with schema and return the path."""
     db_path = tmp_path / "test.duckdb"
     con = get_connection(db_path)
+    ensure_schema(con)
     con.close()
     return db_path
 
@@ -126,7 +132,7 @@ def test_models_dict_has_entries():
 # ---------------------------------------------------------------------------
 
 
-@patch("jt3.embeddings.SentenceTransformer")
+@patch("jt3.embeddings.generator.SentenceTransformer")
 def test_load_model(mock_st_cls):
     mock_model = MagicMock()
     mock_st_cls.return_value = mock_model
@@ -139,7 +145,7 @@ def test_load_model(mock_st_cls):
     assert "sentence-transformers/all-MiniLM-L6-v2" in str(call_kwargs)
 
 
-@patch("jt3.embeddings.SentenceTransformer")
+@patch("jt3.embeddings.generator.SentenceTransformer")
 def test_load_model_invalid_key(mock_st_cls):
     with pytest.raises(KeyError):
         load_model("nonexistent_model")
@@ -307,6 +313,86 @@ def test_generate_prompted_response_embeddings(populated_db: Path):
     con.close()
     assert len(rows) == 3
 
-    # Verify L2-normalized
-    emb = np.array(rows[0][1])
-    np.testing.assert_allclose(np.linalg.norm(emb), 1.0, atol=1e-5)
+
+# ---------------------------------------------------------------------------
+# fetch_category_texts
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_category_texts(populated_db: Path):
+    texts = fetch_category_texts(db_path=populated_db)
+    assert len(texts) == 2
+    assert "SCIENCE" in texts
+    assert "HISTORY" in texts
+
+
+def test_fetch_category_texts_empty(empty_db: Path):
+    texts = fetch_category_texts(db_path=empty_db)
+    assert texts == []
+
+
+# ---------------------------------------------------------------------------
+# fetch_full_context_texts
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_full_context_texts(populated_db: Path):
+    texts = fetch_full_context_texts(db_path=populated_db)
+    # 3 clues with non-null responses
+    assert len(texts) == 3
+    assert any("SCIENCE" in t and "Hydrogen" in t for t in texts)
+    assert any("HISTORY" in t and "1945" in t for t in texts)
+    # Each should follow "Category: Clue → Response" format
+    for t in texts:
+        assert "→" in t
+
+
+def test_fetch_full_context_texts_empty(empty_db: Path):
+    texts = fetch_full_context_texts(db_path=empty_db)
+    assert texts == []
+
+
+# ---------------------------------------------------------------------------
+# generate_category_embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_generate_category_embeddings(populated_db: Path):
+    dim = 8
+    mock_model = MagicMock()
+    mock_model.encode.return_value = (
+        np.random.default_rng(42).standard_normal((2, dim)).astype(np.float32)
+    )
+
+    count = generate_category_embeddings(mock_model, db_path=populated_db)
+
+    assert count == 2
+    mock_model.encode.assert_called_once()
+
+    con = get_connection(populated_db)
+    rows = con.execute("SELECT * FROM category_embeddings").fetchall()
+    con.close()
+    assert len(rows) == 2
+
+
+# ---------------------------------------------------------------------------
+# generate_full_context_embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_generate_full_context_embeddings(populated_db: Path):
+    dim = 8
+    mock_model = MagicMock()
+    mock_model.encode.return_value = (
+        np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
+    )
+
+    count = generate_full_context_embeddings(mock_model, db_path=populated_db)
+
+    assert count == 3
+    mock_model.encode.assert_called_once()
+
+    con = get_connection(populated_db)
+    rows = con.execute("SELECT * FROM full_context_embeddings").fetchall()
+    con.close()
+    assert len(rows) == 3

@@ -6,12 +6,16 @@ import logging
 import re
 import time
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 from urllib.robotparser import RobotFileParser
 
 import requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 
-from .models import Episode
+from ..db import DEFAULT_DB_PATH
+from ..models import Episode
+from .db import saved_game_ids
 from .scraper import fetch_episode
 
 log = logging.getLogger(__name__)
@@ -47,8 +51,12 @@ def fetch_episodes(
     *,
     delay: float | None = None,
     user_agent: str = "*",
+    db_path: str | Path = DEFAULT_DB_PATH,
 ) -> Iterator[Episode]:
     """Yield :class:`Episode` objects for each *game_id*, respecting robots.txt.
+
+    Episodes already saved in the database at *db_path* are skipped
+    automatically.
 
     Parameters
     ----------
@@ -59,6 +67,8 @@ def fetch_episodes(
         ``Crawl-delay`` from robots.txt.
     user_agent:
         User-agent string for the robots.txt check.
+    db_path:
+        Path to the DuckDB file used to check for already-saved episodes.
 
     Raises
     ------
@@ -74,8 +84,14 @@ def fetch_episodes(
     if delay is None:
         delay = crawl_delay
 
+    existing = saved_game_ids(db_path)
+    all_ids = list(game_ids)
+    ids = [gid for gid in all_ids if gid not in existing]
+    skipped = len(all_ids) - len(ids)
+    if skipped:
+        log.info("Skipping %d already-saved episodes", skipped)
     first = True
-    for gid in game_ids:
+    for gid in tqdm(ids, desc="Fetching episodes", unit="ep"):
         if not first and delay > 0:
             time.sleep(delay)
         first = False
@@ -160,13 +176,17 @@ def fetch_season(
     *,
     delay: float | None = None,
     user_agent: str = "*",
+    db_path: str | Path = DEFAULT_DB_PATH,
 ) -> Iterator[Episode]:
     """Fetch all episodes for a season in chronological order.
 
     Retrieves game IDs from the season page, reverses them to chronological
-    order, then delegates to :func:`fetch_episodes`.
+    order, then delegates to :func:`fetch_episodes`.  Episodes already saved
+    in the database at *db_path* are skipped automatically.
     """
     game_ids = get_season_game_ids(season)
     # Season pages list newest first; reverse for chronological order.
     game_ids.reverse()
-    yield from fetch_episodes(game_ids, delay=delay, user_agent=user_agent)
+    yield from fetch_episodes(
+        game_ids, delay=delay, user_agent=user_agent, db_path=db_path
+    )
