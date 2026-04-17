@@ -1,12 +1,16 @@
 from datetime import date
 from pathlib import Path
 
+import numpy as np
+
 from jt3.db import (
     delete_episode,
     ensure_schema,
     get_connection,
+    get_embedding,
     list_episodes,
     load_episode,
+    save_embeddings,
     save_episode,
 )
 from jt3.models import Category, Clue, Contestant, Episode, Round
@@ -343,3 +347,50 @@ def test_episode_no_rounds_or_contestants(tmp_path: Path):
     assert loaded.rounds == []
     assert loaded.show_number is None
     assert loaded.air_date is None
+
+
+# ---------------------------------------------------------------------------
+# save_embeddings / get_embedding
+# ---------------------------------------------------------------------------
+
+
+def test_save_and_get_embedding_round_trip(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+    con = get_connection(db_path)
+    con.close()
+
+    texts = ["This element has atomic number 1", "The powerhouse of the cell"]
+    embeddings = np.random.default_rng(42).standard_normal((2, 384)).astype(np.float32)
+
+    save_embeddings(texts, embeddings, db_path=db_path)
+
+    result = get_embedding("This element has atomic number 1", db_path=db_path)
+    assert result is not None
+    np.testing.assert_allclose(result, embeddings[0], atol=1e-6)
+
+
+def test_get_embedding_not_found(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+    con = get_connection(db_path)
+    con.close()
+
+    result = get_embedding("nonexistent text", db_path=db_path)
+    assert result is None
+
+
+def test_save_embeddings_upserts(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+    con = get_connection(db_path)
+    con.close()
+
+    rng = np.random.default_rng(42)
+    texts = ["same text"]
+    emb_v1 = rng.standard_normal((1, 384)).astype(np.float32)
+    emb_v2 = rng.standard_normal((1, 384)).astype(np.float32)
+
+    save_embeddings(texts, emb_v1, db_path=db_path)
+    save_embeddings(texts, emb_v2, db_path=db_path)
+
+    result = get_embedding("same text", db_path=db_path)
+    assert result is not None
+    np.testing.assert_allclose(result, emb_v2[0], atol=1e-6)

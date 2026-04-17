@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import duckdb
+import numpy as np
 
 from .models import Category, Clue, Contestant, Episode, Round
 
@@ -53,6 +54,11 @@ CREATE TABLE IF NOT EXISTS clues (
     correct_response VARCHAR,
     answerer       VARCHAR,
     PRIMARY KEY (game_id, round_index, category_index, clue_id)
+);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    clue_text TEXT PRIMARY KEY,
+    embedding FLOAT[384] NOT NULL
 );
 """
 
@@ -247,5 +253,38 @@ def list_episodes(db_path: str | Path = DEFAULT_DB_PATH) -> list[dict]:
             "SELECT game_id, show_number, air_date FROM episodes ORDER BY game_id"
         ).fetchall()
         return [{"game_id": r[0], "show_number": r[1], "air_date": r[2]} for r in rows]
+    finally:
+        con.close()
+
+
+def save_embeddings(
+    texts: list[str],
+    embeddings: np.ndarray,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> None:
+    """Bulk-save text\u2192embedding pairs, upserting on conflict."""
+    con = get_connection(db_path)
+    try:
+        rows = [(text, emb.tolist()) for text, emb in zip(texts, embeddings)]
+        con.executemany(
+            "INSERT OR REPLACE INTO embeddings (clue_text, embedding) VALUES (?, ?)",
+            rows,
+        )
+    finally:
+        con.close()
+
+
+def get_embedding(
+    text: str, db_path: str | Path = DEFAULT_DB_PATH
+) -> list[float] | None:
+    """Return the embedding for *text*, or ``None`` if not found."""
+    con = get_connection(db_path)
+    try:
+        row = con.execute(
+            "SELECT embedding FROM embeddings WHERE clue_text = ?", [text]
+        ).fetchone()
+        if row is None:
+            return None
+        return list(row[0])
     finally:
         con.close()

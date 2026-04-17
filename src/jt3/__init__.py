@@ -9,7 +9,14 @@ from .crawler import (
     list_seasons,
     season_url,
 )
-from .db import delete_episode, list_episodes, load_episode, save_episode
+from .db import (
+    delete_episode,
+    get_embedding,
+    list_episodes,
+    load_episode,
+    save_embeddings,
+    save_episode,
+)
 from .models import Category, Clue, Contestant, Episode, Round
 from .scraper import fetch_episode, parse_episode
 
@@ -22,6 +29,7 @@ __all__ = [
     "check_robots",
     "delete_episode",
     "episode_url",
+    "get_embedding",
     "fetch_episode",
     "fetch_episodes",
     "fetch_season",
@@ -30,6 +38,7 @@ __all__ = [
     "list_seasons",
     "load_episode",
     "parse_episode",
+    "save_embeddings",
     "save_episode",
     "season_url",
 ]
