@@ -7,7 +7,7 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 from ..db import DEFAULT_DB_PATH, get_connection
-from .db import save_embeddings, save_full_context_embeddings
+from .db import save_embeddings
 
 MODELS: dict[str, dict] = {
     "all_MiniLM_L6_v2": dict(
@@ -64,13 +64,10 @@ def fetch_category_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
         con.close()
 
 
-def fetch_full_context_texts(
+def fetch_complete_texts(
     *, db_path: str | Path = DEFAULT_DB_PATH
-) -> list[tuple[str, str, str, str]]:
-    """Return distinct ``(category, clue, response, full)`` tuples.
-
-    ``full`` has the form ``"Category: Clue → Response"``.
-    """
+) -> list[str]:
+    """Return distinct ``"Category: Clue → Response"`` strings."""
     con = get_connection(db_path)
     try:
         rows = con.execute(
@@ -82,7 +79,7 @@ def fetch_full_context_texts(
             "WHERE c.correct_response IS NOT NULL "
             "ORDER BY c.game_id DESC, c.round_index, c.category_index, c.clue_order"
         ).fetchall()
-        return [(cat, clue, resp, f"{cat}: {clue} \u2192 {resp}") for cat, clue, resp in rows]
+        return [f"{cat}: {clue} \u2192 {resp}" for cat, clue, resp in rows]
     finally:
         con.close()
 
@@ -179,30 +176,28 @@ def generate_category_embeddings(
     return len(categories)
 
 
-def generate_full_context_embeddings(
+def generate_complete_embeddings(
     model: SentenceTransformer,
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
     batch_size: int = 128,
 ) -> int:
     """Encode ``"Category: Clue → Response"`` strings and save to
-    the ``full_context_embeddings`` table.
+    the ``embeddings.complete`` table.
 
     Returns the number of embeddings saved.
     """
-    rows = fetch_full_context_texts(db_path=db_path)
-    if not rows:
+    texts = fetch_complete_texts(db_path=db_path)
+    if not texts:
         return 0
-    categories, clues, responses, fulls = zip(*rows)
-    embeddings = model.encode(list(fulls), batch_size=batch_size, show_progress_bar=True)
-    save_full_context_embeddings(
-        list(categories),
-        list(clues),
-        list(responses),
-        list(fulls),
+    embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
+    save_embeddings(
+        texts,
         embeddings,
         db_path=db_path,
+        table="embeddings.complete",
+        text_column="text",
     )
-    return len(rows)
+    return len(texts)
 
 

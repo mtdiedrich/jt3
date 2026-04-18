@@ -3,12 +3,12 @@
 import argparse
 
 from jt3.db import DEFAULT_DB_PATH
-from jt3.embeddings import generate_full_context_embeddings, load_model
+from jt3.embeddings import generate_complete_embeddings, load_model
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate full-context (Category: Clue → Response) embeddings"
+        description="Generate complete (Category: Clue → Response) embeddings"
     )
     parser.add_argument(
         "--model",
@@ -23,8 +23,8 @@ def main() -> None:
     args = parser.parse_args()
 
     model = load_model(args.model)
-    n = generate_full_context_embeddings(model, db_path=args.db)
-    print(f"Saved {n} full-context embeddings")
+    n = generate_complete_embeddings(model, db_path=args.db)
+    print(f"Saved {n} complete embeddings")
 
 
 if __name__ == "__main__":

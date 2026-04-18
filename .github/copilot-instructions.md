@@ -39,7 +39,7 @@ scripts/              # Pipeline orchestration scripts
         clues.py      # Generate clue embeddings
         responses.py  # Generate response embeddings
         categories.py # Generate category embeddings
-        full.py         # Generate Category: Clue → Response embeddings
+        complete.py     # Generate Category: Clue → Response embeddings
     show_table.py
 tests/                # pytest tests; mirrors src structure
 ```
@@ -54,7 +54,7 @@ uv run python scripts/scraping/scrape.py <season> [--delay <seconds>] [--db <pat
 uv run python scripts/embeddings/clues.py
 uv run python scripts/embeddings/responses.py
 uv run python scripts/embeddings/categories.py
-uv run python scripts/embeddings/full.py
+uv run python scripts/embeddings/complete.py
 
 # Inspect a table
 uv run python scripts/show_table.py

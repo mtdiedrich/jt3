@@ -15,13 +15,13 @@ from jt3.embeddings.generator import (
     MODELS,
     fetch_category_texts,
     fetch_clue_texts,
-    fetch_full_context_texts,
+    fetch_complete_texts,
     fetch_response_contexts,
     fetch_response_texts,
     generate_category_embeddings,
     generate_clue_embeddings,
     generate_contextual_response_embeddings,
-    generate_full_context_embeddings,
+    generate_complete_embeddings,
     generate_prompted_response_embeddings,
     generate_response_embeddings,
     load_model,
@@ -332,12 +332,12 @@ def test_fetch_category_texts_empty(empty_db: Path):
 
 
 # ---------------------------------------------------------------------------
-# fetch_full_context_texts
+# fetch_complete_texts
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_full_context_texts(populated_db: Path):
-    texts = fetch_full_context_texts(db_path=populated_db)
+def test_fetch_complete_texts(populated_db: Path):
+    texts = fetch_complete_texts(db_path=populated_db)
     # 3 clues with non-null responses
     assert len(texts) == 3
     assert any("SCIENCE" in t and "Hydrogen" in t for t in texts)
@@ -347,8 +347,8 @@ def test_fetch_full_context_texts(populated_db: Path):
         assert "→" in t
 
 
-def test_fetch_full_context_texts_empty(empty_db: Path):
-    texts = fetch_full_context_texts(db_path=empty_db)
+def test_fetch_complete_texts_empty(empty_db: Path):
+    texts = fetch_complete_texts(db_path=empty_db)
     assert texts == []
 
 
@@ -376,23 +376,23 @@ def test_generate_category_embeddings(populated_db: Path):
 
 
 # ---------------------------------------------------------------------------
-# generate_full_context_embeddings
+# generate_complete_embeddings
 # ---------------------------------------------------------------------------
 
 
-def test_generate_full_context_embeddings(populated_db: Path):
+def test_generate_complete_embeddings(populated_db: Path):
     dim = 8
     mock_model = MagicMock()
     mock_model.encode.return_value = (
         np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
     )
 
-    count = generate_full_context_embeddings(mock_model, db_path=populated_db)
+    count = generate_complete_embeddings(mock_model, db_path=populated_db)
 
     assert count == 3
     mock_model.encode.assert_called_once()
 
     con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM full_context_embeddings").fetchall()
+    rows = con.execute("SELECT * FROM embeddings.complete").fetchall()
     con.close()
     assert len(rows) == 3
