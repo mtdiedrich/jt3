@@ -11,15 +11,21 @@ import pytest
 
 from jt3.db import get_connection, save_episode
 from jt3.embeddings import (
+    EMBEDDING_TABLES,
     MODELS,
+    compute_centroid,
+    fetch_category_texts,
     fetch_clue_texts,
     fetch_response_contexts,
     fetch_response_texts,
+    generate_category_embeddings,
     generate_clue_embeddings,
     generate_contextual_response_embeddings,
     generate_prompted_response_embeddings,
     generate_response_embeddings,
     load_model,
+    search_all_tables,
+    search_similar,
 )
 from jt3.models import Category, Clue, Contestant, Episode, Round
 
@@ -219,7 +225,7 @@ def test_generate_clue_embeddings(populated_db: Path):
 
     # Verify data in DB
     con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM clue_embeddings").fetchall()
+    rows = con.execute("SELECT * FROM embeddings.clues").fetchall()
     con.close()
     assert len(rows) == 4
 
@@ -242,7 +248,7 @@ def test_generate_response_embeddings(populated_db: Path):
     mock_model.encode.assert_called_once()
 
     con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM response_embeddings").fetchall()
+    rows = con.execute("SELECT * FROM embeddings.responses").fetchall()
     con.close()
     assert len(rows) == 3
 
@@ -310,3 +316,188 @@ def test_generate_prompted_response_embeddings(populated_db: Path):
     # Verify L2-normalized
     emb = np.array(rows[0][1])
     np.testing.assert_allclose(np.linalg.norm(emb), 1.0, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# compute_centroid
+# ---------------------------------------------------------------------------
+
+
+def test_compute_centroid_single_vector():
+    vec = [1.0, 2.0, 3.0]
+    result = compute_centroid([vec])
+    np.testing.assert_allclose(result, vec)
+
+
+def test_compute_centroid_multiple_vectors():
+    vecs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    result = compute_centroid(vecs)
+    expected = [1 / 3, 1 / 3, 1 / 3]
+    np.testing.assert_allclose(result, expected, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# fetch_category_texts
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_category_texts(populated_db: Path):
+    texts = fetch_category_texts(db_path=populated_db)
+    assert len(texts) == 2
+    assert "SCIENCE" in texts
+    assert "HISTORY" in texts
+
+
+def test_fetch_category_texts_empty(empty_db: Path):
+    texts = fetch_category_texts(db_path=empty_db)
+    assert texts == []
+
+
+# ---------------------------------------------------------------------------
+# generate_category_embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_generate_category_embeddings(populated_db: Path):
+    dim = 8
+    mock_model = MagicMock()
+    mock_model.encode.return_value = (
+        np.random.default_rng(42).standard_normal((2, dim)).astype(np.float32)
+    )
+
+    count = generate_category_embeddings(mock_model, db_path=populated_db)
+
+    assert count == 2
+    mock_model.encode.assert_called_once()
+
+    con = get_connection(populated_db)
+    rows = con.execute("SELECT * FROM embeddings.categories").fetchall()
+    con.close()
+    assert len(rows) == 2
+
+
+# ---------------------------------------------------------------------------
+# search_similar
+# ---------------------------------------------------------------------------
+
+
+def test_search_similar_returns_ranked_results(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+
+    rng = np.random.default_rng(42)
+    base = rng.standard_normal(384).astype(np.float32)
+    similar = base + rng.standard_normal(384).astype(np.float32) * 0.1
+    dissimilar = rng.standard_normal(384).astype(np.float32)
+
+    texts = ["exact match", "close match", "far away"]
+    embeddings = np.stack([base, similar, dissimilar])
+
+    from jt3.db import save_embeddings
+
+    save_embeddings(
+        texts,
+        embeddings,
+        db_path=db_path,
+        table="embeddings.responses",
+        text_column="response_text",
+    )
+
+    results = search_similar(base.tolist(), n=10, db_path=db_path)
+
+    assert len(results) == 3
+    assert results[0][0] == "exact match"
+    assert results[0][1] > 0.99
+    scores = [score for _, score in results]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_search_similar_respects_n(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+
+    rng = np.random.default_rng(42)
+    texts = [f"text_{i}" for i in range(5)]
+    embeddings = rng.standard_normal((5, 384)).astype(np.float32)
+
+    from jt3.db import save_embeddings
+
+    save_embeddings(
+        texts,
+        embeddings,
+        db_path=db_path,
+        table="embeddings.responses",
+        text_column="response_text",
+    )
+
+    query = rng.standard_normal(384).astype(np.float32)
+    results = search_similar(query.tolist(), n=2, db_path=db_path)
+
+    assert len(results) == 2
+
+
+def test_search_similar_empty_table(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+    get_connection(db_path).close()
+
+    query = np.random.default_rng(42).standard_normal(384).astype(np.float32)
+    results = search_similar(query.tolist(), db_path=db_path)
+
+    assert results == []
+
+
+# ---------------------------------------------------------------------------
+# search_all_tables
+# ---------------------------------------------------------------------------
+
+
+def test_search_all_tables(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+
+    rng = np.random.default_rng(42)
+    dim = 16
+
+    from jt3.db import save_embeddings
+
+    save_embeddings(
+        ["clue1", "clue2"],
+        rng.standard_normal((2, dim)).astype(np.float32),
+        db_path=db_path,
+        table="embeddings.clues",
+        text_column="clue_text",
+    )
+    save_embeddings(
+        ["resp1"],
+        rng.standard_normal((1, dim)).astype(np.float32),
+        db_path=db_path,
+        table="embeddings.responses",
+        text_column="response_text",
+    )
+    save_embeddings(
+        ["cat1", "cat2", "cat3"],
+        rng.standard_normal((3, dim)).astype(np.float32),
+        db_path=db_path,
+        table="embeddings.categories",
+        text_column="category_name",
+    )
+
+    query = rng.standard_normal(dim).astype(np.float32).tolist()
+    results = search_all_tables(query, n=5, db_path=db_path)
+
+    assert len(results) == 3
+    assert "embeddings.clues" in results
+    assert "embeddings.responses" in results
+    assert "embeddings.categories" in results
+    assert len(results["embeddings.clues"]) == 2
+    assert len(results["embeddings.responses"]) == 1
+    assert len(results["embeddings.categories"]) == 3
+
+
+def test_search_all_tables_empty_db(tmp_path: Path):
+    db_path = tmp_path / "test.duckdb"
+    get_connection(db_path).close()
+
+    query = np.random.default_rng(42).standard_normal(16).astype(np.float32).tolist()
+    results = search_all_tables(query, db_path=db_path)
+
+    assert len(results) == 3
+    for table, _ in EMBEDDING_TABLES:
+        assert results[table] == []

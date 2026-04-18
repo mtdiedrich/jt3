@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 from sentence_transformers import SentenceTransformer
 
 from .db import (
@@ -13,6 +14,7 @@ from .db import (
     get_connection,
     save_contextual_embeddings,
     save_embeddings,
+    search_similar,
 )
 
 MODELS: dict[str, dict] = {
@@ -37,6 +39,12 @@ def load_model(model_key: str) -> SentenceTransformer:
     return SentenceTransformer(**MODELS[model_key])
 
 
+def compute_centroid(embeddings: npt.ArrayLike) -> list[float]:
+    """Return the element-wise mean of multiple embeddings."""
+    arr = np.asarray(embeddings, dtype=np.float32)
+    return np.mean(arr, axis=0).tolist()
+
+
 # ---------------------------------------------------------------------------
 # Text fetching
 # ---------------------------------------------------------------------------
@@ -50,6 +58,20 @@ def fetch_clue_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
             "SELECT DISTINCT c.text AS clue_text "
             "FROM clues AS c "
             "ORDER BY c.game_id DESC, c.round_index, c.category_index, c.clue_order"
+        ).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        con.close()
+
+
+def fetch_category_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
+    """Return distinct category names from the database."""
+    con = get_connection(db_path)
+    try:
+        rows = con.execute(
+            "SELECT DISTINCT cat.name AS category_name "
+            "FROM categories AS cat "
+            "ORDER BY cat.game_id DESC, cat.round_index, cat.category_index"
         ).fetchall()
         return [r[0] for r in rows]
     finally:
@@ -121,7 +143,7 @@ def generate_clue_embeddings(
         clues,
         embeddings,
         db_path=db_path,
-        table="clue_embeddings",
+        table="embeddings.clues",
         text_column="clue_text",
     )
     return len(clues)
@@ -145,10 +167,34 @@ def generate_response_embeddings(
         responses,
         embeddings,
         db_path=db_path,
-        table="response_embeddings",
+        table="embeddings.responses",
         text_column="response_text",
     )
     return len(responses)
+
+
+def generate_category_embeddings(
+    model: SentenceTransformer,
+    *,
+    db_path: str | Path = DEFAULT_DB_PATH,
+    batch_size: int = 128,
+) -> int:
+    """Encode all category names and save to the ``category_embeddings`` table.
+
+    Returns the number of embeddings saved.
+    """
+    categories = fetch_category_texts(db_path=db_path)
+    if not categories:
+        return 0
+    embeddings = model.encode(categories, batch_size=batch_size, show_progress_bar=True)
+    save_embeddings(
+        categories,
+        embeddings,
+        db_path=db_path,
+        table="embeddings.categories",
+        text_column="category_name",
+    )
+    return len(categories)
 
 
 def generate_contextual_response_embeddings(
@@ -224,3 +270,32 @@ def generate_prompted_response_embeddings(
         text_column="response_text",
     )
     return len(responses)
+
+
+# ---------------------------------------------------------------------------
+# Multi-table search
+# ---------------------------------------------------------------------------
+
+EMBEDDING_TABLES: list[tuple[str, str]] = [
+    ("embeddings.clues", "clue_text"),
+    ("embeddings.responses", "response_text"),
+    ("embeddings.categories", "category_name"),
+]
+
+
+def search_all_tables(
+    embedding: list[float],
+    *,
+    n: int = 10,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, list[tuple[str, float]]]:
+    """Search clues, responses, and categories tables for similar embeddings.
+
+    Returns a dict keyed by table name with lists of ``(text, score)`` tuples.
+    """
+    return {
+        table: search_similar(
+            embedding, n=n, db_path=db_path, table=table, text_column=text_column
+        )
+        for table, text_column in EMBEDDING_TABLES
+    }
