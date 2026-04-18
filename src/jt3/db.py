@@ -17,6 +17,14 @@ def _validate_identifier(name: str) -> str:
     return name
 
 
+def _validate_qualified_name(name: str) -> str:
+    """Validate an optionally schema-qualified SQL name (e.g. ``schema.table``)."""
+    parts = name.split(".")
+    if len(parts) not in (1, 2) or not all(_IDENTIFIER_RE.match(p) for p in parts):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return name
+
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB_PATH = _PROJECT_ROOT / "data" / "jt3.duckdb"
 

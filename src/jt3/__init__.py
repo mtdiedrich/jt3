@@ -1,19 +1,20 @@
 __version__ = "0.1.0"
 
-from .db import DEFAULT_DB_PATH, _validate_identifier, get_connection
+from .db import DEFAULT_DB_PATH, _validate_identifier, _validate_qualified_name, get_connection
 from .embeddings import (
     MODELS,
+    fetch_category_texts,
     fetch_clue_texts,
-    fetch_response_contexts,
+    fetch_full_context_texts,
     fetch_response_texts,
+    generate_category_embeddings,
     generate_clue_embeddings,
-    generate_contextual_response_embeddings,
-    generate_prompted_response_embeddings,
+    generate_full_context_embeddings,
     generate_response_embeddings,
     get_embedding,
     load_model,
-    save_contextual_embeddings,
     save_embeddings,
+    save_full_context_embeddings,
 )
 from .models import Category, Clue, Contestant, Episode, Round
 from .scraping import (
@@ -42,19 +43,21 @@ __all__ = [
     "MODELS",
     "Round",
     "_validate_identifier",
+    "_validate_qualified_name",
     "check_robots",
     "delete_episode",
     "ensure_schema",
     "episode_url",
+    "fetch_category_texts",
     "fetch_clue_texts",
     "fetch_episode",
     "fetch_episodes",
-    "fetch_response_contexts",
+    "fetch_full_context_texts",
     "fetch_response_texts",
     "fetch_season",
+    "generate_category_embeddings",
     "generate_clue_embeddings",
-    "generate_contextual_response_embeddings",
-    "generate_prompted_response_embeddings",
+    "generate_full_context_embeddings",
     "generate_response_embeddings",
     "get_connection",
     "get_embedding",
@@ -64,8 +67,8 @@ __all__ = [
     "load_episode",
     "load_model",
     "parse_episode",
-    "save_contextual_embeddings",
     "save_embeddings",
     "save_episode",
+    "save_full_context_embeddings",
     "season_url",
 ]

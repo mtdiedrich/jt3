@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from ..db import DEFAULT_DB_PATH, get_connection
-from .db import save_contextual_embeddings, save_embeddings
+from .db import save_embeddings, save_full_context_embeddings
 
 MODELS: dict[str, dict] = {
     "all_MiniLM_L6_v2": dict(
@@ -66,8 +64,13 @@ def fetch_category_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
         con.close()
 
 
-def fetch_full_context_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
-    """Return distinct ``"Category: Clue → Response"`` strings."""
+def fetch_full_context_texts(
+    *, db_path: str | Path = DEFAULT_DB_PATH
+) -> list[tuple[str, str, str, str]]:
+    """Return distinct ``(category, clue, response, full)`` tuples.
+
+    ``full`` has the form ``"Category: Clue → Response"``.
+    """
     con = get_connection(db_path)
     try:
         rows = con.execute(
@@ -79,7 +82,7 @@ def fetch_full_context_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[s
             "WHERE c.correct_response IS NOT NULL "
             "ORDER BY c.game_id DESC, c.round_index, c.category_index, c.clue_order"
         ).fetchall()
-        return [f"{cat}: {clue} → {resp}" for cat, clue, resp in rows]
+        return [(cat, clue, resp, f"{cat}: {clue} \u2192 {resp}") for cat, clue, resp in rows]
     finally:
         con.close()
 
@@ -97,33 +100,6 @@ def fetch_response_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
         return [r[0] for r in rows]
     finally:
         con.close()
-
-
-def fetch_response_contexts(
-    *, db_path: str | Path = DEFAULT_DB_PATH
-) -> dict[str, list[str]]:
-    """Return a mapping of response text → list of context strings.
-
-    Each context string has the form ``"Category: Clue → Response"``.
-    """
-    con = get_connection(db_path)
-    try:
-        rows = con.execute(
-            "SELECT c.correct_response, cat.name AS category, c.text AS clue "
-            "FROM clues c "
-            "JOIN categories cat ON c.game_id = cat.game_id "
-            "AND c.round_index = cat.round_index "
-            "AND c.category_index = cat.category_index "
-            "WHERE c.correct_response IS NOT NULL"
-        ).fetchall()
-    finally:
-        con.close()
-
-    contexts: dict[str, list[str]] = {}
-    for resp, category, clue in rows:
-        ctx = f"{category}: {clue} \u2192 {resp}"
-        contexts.setdefault(resp, []).append(ctx)
-    return contexts
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +125,7 @@ def generate_clue_embeddings(
         clues,
         embeddings,
         db_path=db_path,
-        table="clue_embeddings",
+        table="embeddings.clues",
         text_column="clue_text",
     )
     return len(clues)
@@ -173,7 +149,7 @@ def generate_response_embeddings(
         responses,
         embeddings,
         db_path=db_path,
-        table="response_embeddings",
+        table="embeddings.responses",
         text_column="response_text",
     )
     return len(responses)
@@ -197,7 +173,7 @@ def generate_category_embeddings(
         categories,
         embeddings,
         db_path=db_path,
-        table="category_embeddings",
+        table="embeddings.categories",
         text_column="category_name",
     )
     return len(categories)
@@ -214,90 +190,19 @@ def generate_full_context_embeddings(
 
     Returns the number of embeddings saved.
     """
-    texts = fetch_full_context_texts(db_path=db_path)
-    if not texts:
+    rows = fetch_full_context_texts(db_path=db_path)
+    if not rows:
         return 0
-    embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
-    save_embeddings(
-        texts,
+    categories, clues, responses, fulls = zip(*rows)
+    embeddings = model.encode(list(fulls), batch_size=batch_size, show_progress_bar=True)
+    save_full_context_embeddings(
+        list(categories),
+        list(clues),
+        list(responses),
+        list(fulls),
         embeddings,
         db_path=db_path,
-        table="full_context_embeddings",
-        text_column="full_context",
     )
-    return len(texts)
+    return len(rows)
 
 
-def generate_contextual_response_embeddings(
-    model: SentenceTransformer,
-    *,
-    db_path: str | Path = DEFAULT_DB_PATH,
-    batch_size: int = 128,
-) -> int:
-    """Build context strings, encode, average per response, L2-normalize, and save.
-
-    Returns the number of response embeddings saved.
-    """
-    response_contexts = fetch_response_contexts(db_path=db_path)
-    if not response_contexts:
-        return 0
-
-    # Flatten for batch encoding
-    all_strings: list[str] = []
-    string_to_response: list[int] = []
-    response_keys = list(response_contexts.keys())
-
-    for i, resp in enumerate(response_keys):
-        for ctx in response_contexts[resp]:
-            all_strings.append(ctx)
-            string_to_response.append(i)
-
-    ctx_embs = model.encode(all_strings, batch_size=batch_size, show_progress_bar=True)
-
-    # Average embeddings per response, then L2-normalize
-    ctx_avg = np.zeros((len(response_keys), ctx_embs.shape[1]))
-    counts = np.zeros(len(response_keys))
-    for idx, emb in zip(string_to_response, ctx_embs):
-        ctx_avg[idx] += emb
-        counts[idx] += 1
-    ctx_avg /= counts[:, np.newaxis]
-    ctx_avg /= np.linalg.norm(ctx_avg, axis=1, keepdims=True)
-
-    context_json = [json.dumps(response_contexts[r]) for r in response_keys]
-    save_contextual_embeddings(
-        response_keys,
-        ctx_avg.astype(np.float32),
-        context_json,
-        db_path=db_path,
-    )
-    return len(response_keys)
-
-
-def generate_prompted_response_embeddings(
-    model: SentenceTransformer,
-    *,
-    db_path: str | Path = DEFAULT_DB_PATH,
-    prompt: str = "Represent this trivia answer for finding topically related answers: ",
-    batch_size: int = 128,
-) -> int:
-    """Encode responses with a prompt prefix, L2-normalize, and save.
-
-    Returns the number of embeddings saved.
-    """
-    responses = fetch_response_texts(db_path=db_path)
-    if not responses:
-        return 0
-
-    embeddings = model.encode(
-        responses, prompt=prompt, batch_size=batch_size, show_progress_bar=True
-    )
-    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-
-    save_embeddings(
-        responses,
-        embeddings.astype(np.float32),
-        db_path=db_path,
-        table="prompted_response_embeddings",
-        text_column="response_text",
-    )
-    return len(responses)

@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "DuckDB (jt3)": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "mcp-server-motherduck",
+        "--db-path",
+        "f:\\Project\\games\\jt3\\data\\jt3.duckdb"
+      ]
+    }
+  }
+}
