@@ -9,13 +9,8 @@ import numpy as np
 import numpy.typing as npt
 from sentence_transformers import SentenceTransformer
 
-from .db import (
-    DEFAULT_DB_PATH,
-    get_connection,
-    save_contextual_embeddings,
-    save_embeddings,
-    search_similar,
-)
+from ..db import DEFAULT_DB_PATH, get_connection, search_similar
+from .db import save_contextual_embeddings, save_embeddings
 
 MODELS: dict[str, dict] = {
     "all_MiniLM_L6_v2": dict(
@@ -78,6 +73,26 @@ def fetch_category_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
         con.close()
 
 
+def fetch_complete_texts(
+    *, db_path: str | Path = DEFAULT_DB_PATH
+) -> list[str]:
+    """Return distinct ``"Category: Clue → Response"`` strings."""
+    con = get_connection(db_path)
+    try:
+        rows = con.execute(
+            "SELECT DISTINCT cat.name, c.text, c.correct_response "
+            "FROM clues c "
+            "JOIN categories cat ON c.game_id = cat.game_id "
+            "AND c.round_index = cat.round_index "
+            "AND c.category_index = cat.category_index "
+            "WHERE c.correct_response IS NOT NULL "
+            "ORDER BY c.game_id DESC, c.round_index, c.category_index, c.clue_order"
+        ).fetchall()
+        return [f"{cat}: {clue} \u2192 {resp}" for cat, clue, resp in rows]
+    finally:
+        con.close()
+
+
 def fetch_response_texts(*, db_path: str | Path = DEFAULT_DB_PATH) -> list[str]:
     """Return distinct non-null response texts from the database."""
     con = get_connection(db_path)
@@ -131,7 +146,7 @@ def generate_clue_embeddings(
     db_path: str | Path = DEFAULT_DB_PATH,
     batch_size: int = 128,
 ) -> int:
-    """Encode all clue texts and save to the ``clue_embeddings`` table.
+    """Encode all clue texts and save to the ``embeddings.clues`` table.
 
     Returns the number of embeddings saved.
     """
@@ -155,7 +170,7 @@ def generate_response_embeddings(
     db_path: str | Path = DEFAULT_DB_PATH,
     batch_size: int = 128,
 ) -> int:
-    """Encode all response texts and save to the ``response_embeddings`` table.
+    """Encode all response texts and save to the ``embeddings.responses`` table.
 
     Returns the number of embeddings saved.
     """
@@ -179,7 +194,7 @@ def generate_category_embeddings(
     db_path: str | Path = DEFAULT_DB_PATH,
     batch_size: int = 128,
 ) -> int:
-    """Encode all category names and save to the ``category_embeddings`` table.
+    """Encode all category names and save to the ``embeddings.categories`` table.
 
     Returns the number of embeddings saved.
     """
@@ -195,6 +210,31 @@ def generate_category_embeddings(
         text_column="category_name",
     )
     return len(categories)
+
+
+def generate_complete_embeddings(
+    model: SentenceTransformer,
+    *,
+    db_path: str | Path = DEFAULT_DB_PATH,
+    batch_size: int = 128,
+) -> int:
+    """Encode ``"Category: Clue → Response"`` strings and save to
+    the ``embeddings.complete`` table.
+
+    Returns the number of embeddings saved.
+    """
+    texts = fetch_complete_texts(db_path=db_path)
+    if not texts:
+        return 0
+    embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
+    save_embeddings(
+        texts,
+        embeddings,
+        db_path=db_path,
+        table="embeddings.complete",
+        text_column="text",
+    )
+    return len(texts)
 
 
 def generate_contextual_response_embeddings(

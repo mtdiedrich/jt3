@@ -1,4 +1,4 @@
-"""Tests for jt3.embeddings — embedding generation module."""
+"""Tests for jt3.embeddings.generator — embedding generation module."""
 
 from __future__ import annotations
 
@@ -9,23 +9,26 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from jt3.db import get_connection, save_episode
-from jt3.embeddings import (
+from jt3.db import get_connection, search_similar
+from jt3.embeddings.db import save_embeddings
+from jt3.scraping.db import ensure_schema, save_episode
+from jt3.embeddings.generator import (
     EMBEDDING_TABLES,
     MODELS,
     compute_centroid,
     fetch_category_texts,
     fetch_clue_texts,
+    fetch_complete_texts,
     fetch_response_contexts,
     fetch_response_texts,
     generate_category_embeddings,
     generate_clue_embeddings,
     generate_contextual_response_embeddings,
+    generate_complete_embeddings,
     generate_prompted_response_embeddings,
     generate_response_embeddings,
     load_model,
     search_all_tables,
-    search_similar,
 )
 from jt3.models import Category, Clue, Contestant, Episode, Round
 
@@ -112,6 +115,7 @@ def empty_db(tmp_path: Path) -> Path:
     """Create an empty DB with schema and return the path."""
     db_path = tmp_path / "test.duckdb"
     con = get_connection(db_path)
+    ensure_schema(con)
     con.close()
     return db_path
 
@@ -132,7 +136,7 @@ def test_models_dict_has_entries():
 # ---------------------------------------------------------------------------
 
 
-@patch("jt3.embeddings.SentenceTransformer")
+@patch("jt3.embeddings.generator.SentenceTransformer")
 def test_load_model(mock_st_cls):
     mock_model = MagicMock()
     mock_st_cls.return_value = mock_model
@@ -145,7 +149,7 @@ def test_load_model(mock_st_cls):
     assert "sentence-transformers/all-MiniLM-L6-v2" in str(call_kwargs)
 
 
-@patch("jt3.embeddings.SentenceTransformer")
+@patch("jt3.embeddings.generator.SentenceTransformer")
 def test_load_model_invalid_key(mock_st_cls):
     with pytest.raises(KeyError):
         load_model("nonexistent_model")
@@ -354,6 +358,27 @@ def test_fetch_category_texts_empty(empty_db: Path):
 
 
 # ---------------------------------------------------------------------------
+# fetch_complete_texts
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_complete_texts(populated_db: Path):
+    texts = fetch_complete_texts(db_path=populated_db)
+    # 3 clues with non-null responses
+    assert len(texts) == 3
+    assert any("SCIENCE" in t and "Hydrogen" in t for t in texts)
+    assert any("HISTORY" in t and "1945" in t for t in texts)
+    # Each should follow "Category: Clue → Response" format
+    for t in texts:
+        assert "→" in t
+
+
+def test_fetch_complete_texts_empty(empty_db: Path):
+    texts = fetch_complete_texts(db_path=empty_db)
+    assert texts == []
+
+
+# ---------------------------------------------------------------------------
 # generate_category_embeddings
 # ---------------------------------------------------------------------------
 
@@ -377,6 +402,7 @@ def test_generate_category_embeddings(populated_db: Path):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # search_similar
 # ---------------------------------------------------------------------------
 
@@ -391,8 +417,6 @@ def test_search_similar_returns_ranked_results(tmp_path: Path):
 
     texts = ["exact match", "close match", "far away"]
     embeddings = np.stack([base, similar, dissimilar])
-
-    from jt3.db import save_embeddings
 
     save_embeddings(
         texts,
@@ -417,8 +441,6 @@ def test_search_similar_respects_n(tmp_path: Path):
     rng = np.random.default_rng(42)
     texts = [f"text_{i}" for i in range(5)]
     embeddings = rng.standard_normal((5, 384)).astype(np.float32)
-
-    from jt3.db import save_embeddings
 
     save_embeddings(
         texts,
@@ -454,8 +476,6 @@ def test_search_all_tables(tmp_path: Path):
 
     rng = np.random.default_rng(42)
     dim = 16
-
-    from jt3.db import save_embeddings
 
     save_embeddings(
         ["clue1", "clue2"],
@@ -501,3 +521,26 @@ def test_search_all_tables_empty_db(tmp_path: Path):
     assert len(results) == 3
     for table, _ in EMBEDDING_TABLES:
         assert results[table] == []
+
+
+# ---------------------------------------------------------------------------
+# generate_complete_embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_generate_complete_embeddings(populated_db: Path):
+    dim = 8
+    mock_model = MagicMock()
+    mock_model.encode.return_value = (
+        np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
+    )
+
+    count = generate_complete_embeddings(mock_model, db_path=populated_db)
+
+    assert count == 3
+    mock_model.encode.assert_called_once()
+
+    con = get_connection(populated_db)
+    rows = con.execute("SELECT * FROM embeddings.complete").fetchall()
+    con.close()
+    assert len(rows) == 3

@@ -1,0 +1,12 @@
+{
+  "sqltools.useNodeRuntime": "C:\\Users\\Mitchell\\AppData\\Local\\nvm\\v20.20.2\\node.exe",
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "driver": "DuckDB",
+      "name": "jt3",
+      "database": "${workspaceFolder:jt3}/data/jt3.duckdb",
+      "accessMode": "Read/Write"
+    }
+  ]
+}

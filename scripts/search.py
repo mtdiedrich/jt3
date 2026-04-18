@@ -2,8 +2,8 @@
 
 import argparse
 
-from jt3.db import DEFAULT_DB_PATH
-from jt3.embeddings import load_model, search_similar
+from jt3.db import DEFAULT_DB_PATH, search_similar
+from jt3.embeddings import load_model
 
 
 def main() -> None:

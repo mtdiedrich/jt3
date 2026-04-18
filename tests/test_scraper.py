@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from jt3.scraper import _parse_contestants, _parse_dollar, _parse_title, parse_episode
+from jt3.scraping.scraper import (
+    _parse_contestants,
+    _parse_dollar,
+    _parse_title,
+    parse_episode,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_game.html"
 
@@ -244,7 +249,7 @@ def test_final_jeopardy_clue_id(fixture_html: str):
 
 
 def test_fetch_episode_invalid_url_raises():
-    from jt3.scraper import fetch_episode
+    from jt3.scraping.scraper import fetch_episode
 
     with pytest.raises(ValueError, match="game_id"):
         fetch_episode("https://example.com/no-game-id")
