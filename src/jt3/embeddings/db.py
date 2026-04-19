@@ -24,6 +24,7 @@ def save_embeddings(
     *,
     table: str = "embeddings.clues",
     text_column: str = "text",
+    model_name: str,
 ) -> None:
     """Bulk-save text→embedding pairs into a schema-qualified table."""
     embeddings = np.asarray(embeddings)
@@ -36,12 +37,19 @@ def save_embeddings(
         con.execute(f"DROP TABLE IF EXISTS {tbl}")
         con.execute(
             f"CREATE TABLE {tbl} "
-            f"({col} TEXT PRIMARY KEY, embedding FLOAT[{dim}] NOT NULL)"
+            f"({col} TEXT PRIMARY KEY, embedding FLOAT[{dim}] NOT NULL, "
+            f"embeddings_model TEXT NOT NULL)"
         )
-        df = pl.DataFrame({col: texts, "embedding": embeddings.tolist()}).unique(
-            subset=[col], keep="first"
+        df = pl.DataFrame(
+            {
+                col: texts,
+                "embedding": embeddings.tolist(),
+                "embeddings_model": [model_name] * len(texts),
+            }
+        ).unique(subset=[col], keep="first")
+        con.execute(
+            f"INSERT INTO {tbl} SELECT {col}, embedding, embeddings_model FROM df"
         )
-        con.execute(f"INSERT INTO {tbl} SELECT {col}, embedding FROM df")
     finally:
         con.close()
 
@@ -78,33 +86,28 @@ def get_embedding(
         con.close()
 
 
-def save_contextual_embeddings(
-    texts: list[str],
-    embeddings: npt.ArrayLike,
-    context_texts: list[str],
+def get_model_name(
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
-) -> None:
-    """Save contextual response embeddings with JSON context strings."""
-    embeddings = np.asarray(embeddings)
-    dim = embeddings.shape[1]
+    table: str = "embeddings.clues",
+) -> str | None:
+    """Return the embeddings model name stored in *table*, or ``None`` if the table doesn't exist."""
+    tbl = _validate_qualified_name(table)
+    parts = tbl.split(".")
+    table_name = parts[-1]
+    schema_name = parts[0] if len(parts) == 2 else "main"
     con = get_connection(db_path)
     try:
-        con.execute("DROP TABLE IF EXISTS contextual_response_embeddings")
-        con.execute(
-            f"CREATE TABLE contextual_response_embeddings ("
-            f"response_text TEXT PRIMARY KEY, "
-            f"context_texts JSON NOT NULL, "
-            f"embedding FLOAT[{dim}] NOT NULL)"
-        )
-        df = pl.DataFrame({
-            "response_text": texts,
-            "context_texts": context_texts,
-            "embedding": embeddings.tolist(),
-        })
-        con.execute(
-            "INSERT INTO contextual_response_embeddings "
-            "SELECT response_text, context_texts, embedding FROM df"
-        )
+        exists = con.execute(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_schema = ? AND table_name = ?",
+            [schema_name, table_name],
+        ).fetchone()[0]
+        if not exists:
+            return None
+        row = con.execute(
+            f"SELECT DISTINCT embeddings_model FROM {tbl} LIMIT 1"
+        ).fetchone()
+        return row[0] if row else None
     finally:
         con.close()

@@ -3,7 +3,14 @@
 import argparse
 
 from jt3.db import DEFAULT_DB_PATH
-from jt3.embeddings import compute_centroid, load_model, search_all_tables
+from jt3.embeddings import (
+    EMBEDDING_TABLES,
+    _resolve_model_key,
+    compute_centroid,
+    load_model,
+    search_all_tables,
+)
+from jt3.embeddings.db import get_model_name
 
 TABLE_LABELS = {
     "embeddings.clues": "Clues",
@@ -22,8 +29,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default="all_MiniLM_L6_v2",
-        help="Model config key (default: all_MiniLM_L6_v2)",
+        default=None,
+        help="Model config key (auto-detected from DB when omitted)",
     )
     parser.add_argument(
         "--n",
@@ -38,7 +45,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    model = load_model(args.model)
+    if args.model is None:
+        for table, _ in EMBEDDING_TABLES:
+            model_path = get_model_name(db_path=args.db, table=table)
+            if model_path:
+                model_key = _resolve_model_key(model_path)
+                break
+        else:
+            parser.error("No embeddings found in DB. Specify --model explicitly.")
+    else:
+        model_key = args.model
+
+    model = load_model(model_key)
     embeddings = model.encode(args.queries)
     centroid = compute_centroid(embeddings)
     all_results = search_all_tables(centroid, n=args.n, db_path=args.db)

@@ -1,13 +1,20 @@
-"""Generate embeddings for all response texts and store them in DuckDB."""
+"""Generate clue, response, and category embeddings in a single run."""
 
 import argparse
 
 from jt3.db import DEFAULT_DB_PATH
-from jt3.embeddings import generate_response_embeddings, load_model
+from jt3.embeddings import (
+    generate_category_embeddings,
+    generate_clue_embeddings,
+    generate_response_embeddings,
+    load_model,
+)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate response text embeddings")
+    parser = argparse.ArgumentParser(
+        description="Generate clue, response, and category embeddings"
+    )
     parser.add_argument(
         "--model",
         default="all_minilm_l6_v2",
@@ -21,8 +28,15 @@ def main() -> None:
     args = parser.parse_args()
 
     model = load_model(args.model)
+
+    n = generate_clue_embeddings(model, db_path=args.db)
+    print(f"Saved {n} clue embeddings")
+
     n = generate_response_embeddings(model, db_path=args.db)
     print(f"Saved {n} response embeddings")
+
+    n = generate_category_embeddings(model, db_path=args.db)
+    print(f"Saved {n} category embeddings")
 
 
 if __name__ == "__main__":

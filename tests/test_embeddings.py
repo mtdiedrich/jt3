@@ -1,4 +1,4 @@
-"""Tests for jt3.embeddings.generator — embedding generation module."""
+"""Tests for jt3.embeddings — embedding generation & config modules."""
 
 from __future__ import annotations
 
@@ -10,24 +10,20 @@ import numpy as np
 import pytest
 
 from jt3.db import get_connection, search_similar
+from jt3.embeddings.config import MODELS, _resolve_model_key, load_model
 from jt3.embeddings.db import save_embeddings
 from jt3.scraping.db import ensure_schema, save_episode
 from jt3.embeddings.generator import (
     EMBEDDING_TABLES,
-    MODELS,
     compute_centroid,
     fetch_category_texts,
     fetch_clue_texts,
     fetch_complete_texts,
-    fetch_response_contexts,
     fetch_response_texts,
     generate_category_embeddings,
     generate_clue_embeddings,
-    generate_contextual_response_embeddings,
     generate_complete_embeddings,
-    generate_prompted_response_embeddings,
     generate_response_embeddings,
-    load_model,
     search_all_tables,
 )
 from jt3.models import Category, Clue, Contestant, Episode, Round
@@ -136,12 +132,12 @@ def test_models_dict_has_entries():
 # ---------------------------------------------------------------------------
 
 
-@patch("jt3.embeddings.generator.SentenceTransformer")
+@patch("jt3.embeddings.config.SentenceTransformer")
 def test_load_model(mock_st_cls):
     mock_model = MagicMock()
     mock_st_cls.return_value = mock_model
 
-    result = load_model("all_MiniLM_L6_v2")
+    result = load_model("all_minilm_l6_v2")
 
     assert result is mock_model
     mock_st_cls.assert_called_once()
@@ -149,10 +145,25 @@ def test_load_model(mock_st_cls):
     assert "sentence-transformers/all-MiniLM-L6-v2" in str(call_kwargs)
 
 
-@patch("jt3.embeddings.generator.SentenceTransformer")
+@patch("jt3.embeddings.config.SentenceTransformer")
 def test_load_model_invalid_key(mock_st_cls):
     with pytest.raises(KeyError):
         load_model("nonexistent_model")
+
+
+# ---------------------------------------------------------------------------
+# _resolve_model_key
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_model_key():
+    key = _resolve_model_key("sentence-transformers/all-MiniLM-L6-v2")
+    assert key == "all_minilm_l6_v2"
+
+
+def test_resolve_model_key_unknown():
+    with pytest.raises(KeyError):
+        _resolve_model_key("nonexistent/model")
 
 
 # ---------------------------------------------------------------------------
@@ -195,22 +206,6 @@ def test_fetch_response_texts_excludes_null(populated_db: Path):
 
 
 # ---------------------------------------------------------------------------
-# fetch_response_contexts
-# ---------------------------------------------------------------------------
-
-
-def test_fetch_response_contexts(populated_db: Path):
-    contexts = fetch_response_contexts(db_path=populated_db)
-    assert isinstance(contexts, dict)
-    assert "Hydrogen" in contexts
-    assert len(contexts["Hydrogen"]) == 1
-    ctx = contexts["Hydrogen"][0]
-    assert "SCIENCE" in ctx
-    assert "This element has atomic number 1" in ctx
-    assert "Hydrogen" in ctx
-
-
-# ---------------------------------------------------------------------------
 # generate_clue_embeddings
 # ---------------------------------------------------------------------------
 
@@ -221,6 +216,7 @@ def test_generate_clue_embeddings(populated_db: Path):
     mock_model.encode.return_value = (
         np.random.default_rng(42).standard_normal((4, dim)).astype(np.float32)
     )
+    mock_model.model_card_data.model_name = "test-org/test-model"
 
     count = generate_clue_embeddings(mock_model, db_path=populated_db)
 
@@ -230,8 +226,13 @@ def test_generate_clue_embeddings(populated_db: Path):
     # Verify data in DB
     con = get_connection(populated_db)
     rows = con.execute("SELECT * FROM embeddings.clues").fetchall()
-    con.close()
     assert len(rows) == 4
+    # Verify model name stored
+    model_name = con.execute(
+        "SELECT DISTINCT embeddings_model FROM embeddings.clues"
+    ).fetchone()[0]
+    con.close()
+    assert model_name == "test-org/test-model"
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +246,7 @@ def test_generate_response_embeddings(populated_db: Path):
     mock_model.encode.return_value = (
         np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
     )
+    mock_model.model_card_data.model_name = "test-org/test-model"
 
     count = generate_response_embeddings(mock_model, db_path=populated_db)
 
@@ -253,73 +255,12 @@ def test_generate_response_embeddings(populated_db: Path):
 
     con = get_connection(populated_db)
     rows = con.execute("SELECT * FROM embeddings.responses").fetchall()
-    con.close()
     assert len(rows) == 3
-
-
-# ---------------------------------------------------------------------------
-# generate_contextual_response_embeddings
-# ---------------------------------------------------------------------------
-
-
-def test_generate_contextual_response_embeddings(populated_db: Path):
-    dim = 8
-    mock_model = MagicMock()
-    # 3 context strings (one per clue with a response)
-    mock_model.encode.return_value = (
-        np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
-    )
-
-    count = generate_contextual_response_embeddings(mock_model, db_path=populated_db)
-
-    assert count == 3
-    mock_model.encode.assert_called_once()
-
-    con = get_connection(populated_db)
-    rows = con.execute(
-        "SELECT response_text, context_texts, embedding "
-        "FROM contextual_response_embeddings"
-    ).fetchall()
+    model_name = con.execute(
+        "SELECT DISTINCT embeddings_model FROM embeddings.responses"
+    ).fetchone()[0]
     con.close()
-    assert len(rows) == 3
-    # Check that context_texts is valid JSON
-    import json
-
-    for row in rows:
-        contexts = json.loads(row[1])
-        assert isinstance(contexts, list)
-
-
-# ---------------------------------------------------------------------------
-# generate_prompted_response_embeddings
-# ---------------------------------------------------------------------------
-
-
-def test_generate_prompted_response_embeddings(populated_db: Path):
-    dim = 8
-    mock_model = MagicMock()
-    mock_model.encode.return_value = (
-        np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
-    )
-
-    prompt = "Represent this trivia answer: "
-    count = generate_prompted_response_embeddings(
-        mock_model, db_path=populated_db, prompt=prompt
-    )
-
-    assert count == 3
-    mock_model.encode.assert_called_once()
-    call_kwargs = mock_model.encode.call_args
-    assert call_kwargs.kwargs.get("prompt") == prompt
-
-    con = get_connection(populated_db)
-    rows = con.execute("SELECT * FROM prompted_response_embeddings").fetchall()
-    con.close()
-    assert len(rows) == 3
-
-    # Verify L2-normalized
-    emb = np.array(rows[0][1])
-    np.testing.assert_allclose(np.linalg.norm(emb), 1.0, atol=1e-5)
+    assert model_name == "test-org/test-model"
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +330,7 @@ def test_generate_category_embeddings(populated_db: Path):
     mock_model.encode.return_value = (
         np.random.default_rng(42).standard_normal((2, dim)).astype(np.float32)
     )
+    mock_model.model_card_data.model_name = "test-org/test-model"
 
     count = generate_category_embeddings(mock_model, db_path=populated_db)
 
@@ -397,8 +339,12 @@ def test_generate_category_embeddings(populated_db: Path):
 
     con = get_connection(populated_db)
     rows = con.execute("SELECT * FROM embeddings.categories").fetchall()
-    con.close()
     assert len(rows) == 2
+    model_name = con.execute(
+        "SELECT DISTINCT embeddings_model FROM embeddings.categories"
+    ).fetchone()[0]
+    con.close()
+    assert model_name == "test-org/test-model"
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +370,7 @@ def test_search_similar_returns_ranked_results(tmp_path: Path):
         db_path=db_path,
         table="embeddings.responses",
         text_column="response_text",
+        model_name="test-model",
     )
 
     results = search_similar(base.tolist(), n=10, db_path=db_path)
@@ -448,6 +395,7 @@ def test_search_similar_respects_n(tmp_path: Path):
         db_path=db_path,
         table="embeddings.responses",
         text_column="response_text",
+        model_name="test-model",
     )
 
     query = rng.standard_normal(384).astype(np.float32)
@@ -483,6 +431,7 @@ def test_search_all_tables(tmp_path: Path):
         db_path=db_path,
         table="embeddings.clues",
         text_column="clue_text",
+        model_name="test-model",
     )
     save_embeddings(
         ["resp1"],
@@ -490,6 +439,7 @@ def test_search_all_tables(tmp_path: Path):
         db_path=db_path,
         table="embeddings.responses",
         text_column="response_text",
+        model_name="test-model",
     )
     save_embeddings(
         ["cat1", "cat2", "cat3"],
@@ -497,6 +447,7 @@ def test_search_all_tables(tmp_path: Path):
         db_path=db_path,
         table="embeddings.categories",
         text_column="category_name",
+        model_name="test-model",
     )
 
     query = rng.standard_normal(dim).astype(np.float32).tolist()
@@ -534,6 +485,7 @@ def test_generate_complete_embeddings(populated_db: Path):
     mock_model.encode.return_value = (
         np.random.default_rng(42).standard_normal((3, dim)).astype(np.float32)
     )
+    mock_model.model_card_data.model_name = "test-org/test-model"
 
     count = generate_complete_embeddings(mock_model, db_path=populated_db)
 
@@ -542,5 +494,9 @@ def test_generate_complete_embeddings(populated_db: Path):
 
     con = get_connection(populated_db)
     rows = con.execute("SELECT * FROM embeddings.complete").fetchall()
-    con.close()
     assert len(rows) == 3
+    model_name = con.execute(
+        "SELECT DISTINCT embeddings_model FROM embeddings.complete"
+    ).fetchone()[0]
+    con.close()
+    assert model_name == "test-org/test-model"

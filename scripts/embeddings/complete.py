@@ -12,8 +12,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default="all_MiniLM_L6_v2",
-        help="Model config key (default: all_MiniLM_L6_v2)",
+        default="all_minilm_l6_v2",
+        help="Model config key (default: all_minilm_l6_v2)",
     )
     parser.add_argument(
         "--db",

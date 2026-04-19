@@ -30,16 +30,18 @@ src/jt3/              # Package root (importable as `jt3`)
         crawler.py    # Season/game-list crawling
         db.py         # Episode CRUD (save_episode, load_episode, etc.)
     embeddings/       # Embedding-generation pipeline
-        generator.py  # Model loading, text fetching, embedding generation
+        config.py     # Model registry (MODELS, load_model, _resolve_model_key)
+        generator.py  # Text fetching, embedding generation, search
         db.py         # Embedding storage (save_embeddings, get_embedding, etc.)
 scripts/              # Pipeline orchestration scripts
     scraping/
         scrape.py     # Season scraping CLI
     embeddings/
+        generate.py   # Generate clue + response + category embeddings (unified)
         clues.py      # Generate clue embeddings
         responses.py  # Generate response embeddings
         categories.py # Generate category embeddings
-        complete.py     # Generate Category: Clue → Response embeddings
+        complete.py   # Generate Category: Clue → Response embeddings
     show_table.py
 tests/                # pytest tests; mirrors src structure
 ```
@@ -51,6 +53,7 @@ tests/                # pytest tests; mirrors src structure
 uv run python scripts/scraping/scrape.py <season> [--delay <seconds>] [--db <path>]
 
 # Generate embeddings (each script accepts --model and --db)
+uv run python scripts/embeddings/generate.py          # clues + responses + categories
 uv run python scripts/embeddings/clues.py
 uv run python scripts/embeddings/responses.py
 uv run python scripts/embeddings/categories.py
