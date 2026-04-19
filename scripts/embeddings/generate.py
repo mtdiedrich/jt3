@@ -28,6 +28,8 @@ def main() -> None:
     args = parser.parse_args()
 
     model = load_model(args.model)
+    device = model.device
+    print(f"Model loaded on: {device}")
 
     n = generate_clue_embeddings(model, db_path=args.db)
     print(f"Saved {n} clue embeddings")

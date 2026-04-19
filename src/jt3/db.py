@@ -36,6 +36,14 @@ def get_connection(db_path: str | Path = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConn
     return duckdb.connect(str(db_path))
 
 
+def _table_exists(con, schema_name: str, table_name: str) -> bool:
+    return con.execute(
+        "SELECT count(*) FROM information_schema.tables "
+        "WHERE table_schema = ? AND table_name = ?",
+        [schema_name, table_name],
+    ).fetchone()[0]
+
+
 def search_similar(
     embedding: list[float],
     *,
@@ -52,21 +60,58 @@ def search_similar(
     tbl = _validate_qualified_name(table)
     col = _validate_identifier(text_column)
     parts = tbl.split(".")
-    table_name = parts[-1]
     schema_name = parts[0] if len(parts) == 2 else "main"
+    table_name = parts[-1]
     con = get_connection(db_path)
     try:
-        exists = con.execute(
-            "SELECT count(*) FROM information_schema.tables "
-            "WHERE table_schema = ? AND table_name = ?",
-            [schema_name, table_name],
-        ).fetchone()[0]
-        if not exists:
+        if not _table_exists(con, schema_name, table_name):
             return []
         rows = con.execute(
             f"SELECT {col}, list_cosine_similarity(embedding, ?::FLOAT[]) AS score "
             f"FROM {tbl} ORDER BY score DESC LIMIT ?",
             [embedding, n],
+        ).fetchall()
+        return [(row[0], row[1]) for row in rows]
+    finally:
+        con.close()
+
+
+def search_by_min_similarity(
+    embeddings: list[list[float]],
+    *,
+    n: int = 10,
+    db_path: str | Path = DEFAULT_DB_PATH,
+    table: str = "embeddings.responses",
+    text_column: str = "response_text",
+) -> list[tuple[str, float]]:
+    """Return the *n* texts with the highest minimum similarity across all query embeddings.
+
+    Scores each row by ``min(cosine_sim(row, q) for q in embeddings)``, so results
+    must be genuinely close to *every* query rather than just their average.
+
+    Returns a list of ``(text, score)`` tuples sorted by descending score,
+    or an empty list if the table does not exist.
+    """
+    if not embeddings:
+        return []
+    tbl = _validate_qualified_name(table)
+    col = _validate_identifier(text_column)
+    parts = tbl.split(".")
+    schema_name = parts[0] if len(parts) == 2 else "main"
+    table_name = parts[-1]
+    con = get_connection(db_path)
+    try:
+        if not _table_exists(con, schema_name, table_name):
+            return []
+        dim = len(embeddings[0])
+        sim_exprs = ", ".join(
+            f"list_cosine_similarity(embedding, ?::FLOAT[{dim}])"
+            for _ in embeddings
+        )
+        rows = con.execute(
+            f"SELECT {col}, LEAST({sim_exprs}) AS score "
+            f"FROM {tbl} ORDER BY score DESC LIMIT ?",
+            [*embeddings, n],
         ).fetchall()
         return [(row[0], row[1]) for row in rows]
     finally:

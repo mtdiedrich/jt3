@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 from sentence_transformers import SentenceTransformer
 
-from ..db import DEFAULT_DB_PATH, get_connection, search_similar
+from ..db import DEFAULT_DB_PATH, get_connection, search_by_min_similarity, search_similar
 from .db import save_embeddings
 
 
@@ -20,7 +20,7 @@ def compute_centroid(embeddings: npt.ArrayLike) -> list[float]:
 
 def _get_model_path(model: SentenceTransformer) -> str:
     """Extract the HuggingFace model name/path from a SentenceTransformer."""
-    return model.model_card_data.model_name
+    return model.model_card_data.base_model
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +221,25 @@ def search_all_tables(
     return {
         table: search_similar(
             embedding, n=n, db_path=db_path, table=table, text_column=text_column
+        )
+        for table, text_column in EMBEDDING_TABLES
+    }
+
+
+def search_all_tables_by_min_sim(
+    embeddings: list[list[float]],
+    *,
+    n: int = 10,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, list[tuple[str, float]]]:
+    """Search all tables scoring each row by its minimum similarity across all query embeddings.
+
+    Results must be genuinely close to every query, not just their average.
+    Returns a dict keyed by table name with lists of ``(text, score)`` tuples.
+    """
+    return {
+        table: search_by_min_similarity(
+            embeddings, n=n, db_path=db_path, table=table, text_column=text_column
         )
         for table, text_column in EMBEDDING_TABLES
     }

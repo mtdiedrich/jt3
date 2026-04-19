@@ -20,6 +20,7 @@ from .generator import (
     generate_complete_embeddings,
     generate_response_embeddings,
     search_all_tables,
+    search_all_tables_by_min_sim,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "load_model",
     "save_embeddings",
     "search_all_tables",
+    "search_all_tables_by_min_sim",
 ]

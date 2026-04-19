@@ -1,4 +1,4 @@
-"""Search clues, responses, and categories by centroid of multiple query strings."""
+"""Search clues, responses, and categories by minimum similarity across query strings."""
 
 import argparse
 
@@ -6,9 +6,8 @@ from jt3.db import DEFAULT_DB_PATH
 from jt3.embeddings import (
     EMBEDDING_TABLES,
     _resolve_model_key,
-    compute_centroid,
     load_model,
-    search_all_tables,
+    search_all_tables_by_min_sim,
 )
 from jt3.embeddings.db import get_model_name
 
@@ -21,8 +20,8 @@ TABLE_LABELS = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Find the most similar clues, responses, and categories "
-        "to the centroid of N query strings"
+        description="Find clues, responses, and categories closest to all query strings "
+        "(ranked by minimum similarity across queries)"
     )
     parser.add_argument(
         "queries", nargs="+", help="Query strings to embed and average"
@@ -57,9 +56,8 @@ def main() -> None:
         model_key = args.model
 
     model = load_model(model_key)
-    embeddings = model.encode(args.queries)
-    centroid = compute_centroid(embeddings)
-    all_results = search_all_tables(centroid, n=args.n, db_path=args.db)
+    query_embeddings = [emb.tolist() for emb in model.encode(args.queries)]
+    all_results = search_all_tables_by_min_sim(query_embeddings, n=args.n, db_path=args.db)
 
     for table, results in all_results.items():
         label = TABLE_LABELS.get(table, table)
